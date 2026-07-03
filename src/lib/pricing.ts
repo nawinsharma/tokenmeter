@@ -86,7 +86,7 @@ export function computeCost(
   const cost =
     (usage.inputTokens * pricing.inputPerMtok) / 1e6 +
     (usage.outputTokens * pricing.outputPerMtok) / 1e6 +
-    (usage.cacheCreationInputTokens * pricing.outputPerMtok * pricing.cacheWriteMult) / 1e6 +
-    (usage.cacheReadInputTokens * pricing.outputPerMtok * pricing.cacheReadMult) / 1e6;
+    (usage.cacheCreationInputTokens * pricing.inputPerMtok * pricing.cacheWriteMult) / 1e6 +
+    (usage.cacheReadInputTokens * pricing.inputPerMtok * pricing.cacheReadMult) / 1e6;
   return { cost, version: pricing.version };
 }
