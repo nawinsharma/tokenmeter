@@ -1,7 +1,7 @@
 // Validated dark-surface palette (from the dataviz reference instance).
 // Categorical hues assigned in fixed order — never cycled by rank.
 export const CATEGORICAL = [
-  "#4a90e2", // 1 blue
+  "#3987e5", // 1 blue
   "#199e70", // 2 aqua
   "#c98500", // 3 yellow
   "#008300", // 4 green
@@ -14,9 +14,9 @@ export const CATEGORICAL = [
 export const INK = {
   primary: "#ffffff",
   secondary: "#c3c2b7",
-  muted: "#7a7a74", // axis/tick labels
-  grid: "#333331",
-  axis: "#454542",
+  muted: "#898781", // axis/tick labels
+  grid: "#2c2c2a",
+  axis: "#383835",
   surface: "#1a1a19",
 };
 
