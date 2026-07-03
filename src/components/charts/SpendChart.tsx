@@ -29,13 +29,14 @@ export function SpendChart({ data }: { data: DayPoint[] }) {
           tickFormatter={(d: string) => d.slice(5)}
           axisLine={{ stroke: INK.axis }}
           tickLine={false}
+          minTickGap={24}
         />
         <YAxis
           tick={{ fill: INK.muted, fontSize: 11 }}
           tickFormatter={(v: number) => fmtUsdAxis(v)}
           axisLine={false}
           tickLine={false}
-          width={40}
+          width={48}
         />
         <Tooltip
           cursor={{ stroke: INK.axis }}
@@ -47,7 +48,7 @@ export function SpendChart({ data }: { data: DayPoint[] }) {
           }}
           labelStyle={{ color: INK.secondary }}
           itemStyle={{ color: INK.primary }}
-          formatter={(v) => [fmtUsd(Number(v)), "Cost"]}
+          formatter={(v) => [fmtUsd(Number(v)), "Spend"]}
         />
         <Area
           type="monotone"
