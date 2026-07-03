@@ -6,6 +6,40 @@ and rendered in a dashboard. See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for the 
 
 Stack: Next.js (App Router, TS) · Postgres + Drizzle · Tailwind · Recharts.
 
+## Architecture
+
+```mermaid
+flowchart LR
+  subgraph client["Your app"]
+    sdk["Anthropic SDK<br/>baseURL → proxy"]
+  end
+
+  subgraph tm["Token Meter (Next.js)"]
+    proxy["Proxy<br/>/v1/messages"]
+    vault["Auth + key vault<br/>AES-256-GCM"]
+    cost["Cost engine<br/>versioned pricing"]
+    dash["Dashboard<br/>Recharts"]
+  end
+
+  db[("Postgres")]
+  up["Anthropic API"]
+
+  sdk -- "proxy key" --> proxy
+  proxy -- "hash → lookup,<br/>decrypt upstream key" --> vault
+  vault --- db
+  proxy -- "real key" --> up
+  up -- "response + usage" --> proxy
+  proxy -- "streamed response" --> sdk
+  proxy -. "price + record (async)" .-> cost
+  cost -- "usage_events" --> db
+  db --> dash
+```
+
+The user points their SDK at the proxy with a Token Meter key; we resolve it to their
+encrypted Anthropic key, forward the call, stream the response back untouched, and
+record priced `usage` off-path into Postgres for the dashboard. See
+[`ARCHITECTURE.md`](./ARCHITECTURE.md) for the full design.
+
 ## Prerequisites
 
 - Node 20+, pnpm
