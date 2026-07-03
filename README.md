@@ -50,3 +50,31 @@ const client = new Anthropic({
 > For raw `curl` you hit the full path yourself: `http://localhost:3000/v1/messages`.
 
 4. Make requests as usual (streaming and non-streaming both work). Usage + cost land on the **Overview** dashboard.
+
+## Scripts
+
+| Script | Purpose |
+|---|---|
+| `pnpm dev` / `build` / `start` | Next.js |
+| `pnpm db:push` | Apply the Drizzle schema to Postgres |
+| `pnpm db:seed` | Seed model pricing (`model_pricing`) |
+| `pnpm db:demo` | Insert ~320 sample usage events for the most-recent org (charts demo) |
+| `pnpm db:studio` | Drizzle Studio |
+
+> Dev note: pnpm's run-wrapper conflicts with ignored build scripts here, so the DB scripts
+> and any tsx/drizzle-kit calls run via `./node_modules/.bin/<tool>` under the hood are equivalent.
+> If `pnpm db:push` errors on `ERR_PNPM_IGNORED_BUILDS`, run `./node_modules/.bin/drizzle-kit push`.
+
+## What's built
+
+- **Auth** — email/password (bcrypt), one org per signup, signed-cookie sessions (jose).
+- **Key vault** — provider keys encrypted with AES-256-GCM envelope encryption; proxy keys stored as SHA-256 hashes, shown once.
+- **Proxy** — `POST /v1/messages` forwards to the upstream, transparently streams SSE, and captures `usage` (input/output/cache tokens) off the response. Metrics writes are fire-and-forget so a DB hiccup never breaks the user's LLM call.
+- **Cost engine** — versioned `model_pricing`; each event records the pricing version used.
+- **Dashboard** — spend over time, cost by model, cache-hit ratio, recent requests, filterable by date range.
+
+## Not yet built (see ARCHITECTURE.md §9)
+
+Multi-provider adapters (OpenAI/Gemini), tags/labels per request, CSV export, budgets/alerts,
+Admin-API pull mode, and hardening the proxy as a standalone service. Provider keys currently
+use a local master key — move to a real KMS before production.
