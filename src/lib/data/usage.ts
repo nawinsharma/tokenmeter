@@ -31,7 +31,7 @@ export async function getSummary(orgId: string, days: number): Promise<Summary> 
       coalesce(sum(input_tokens), 0) as input_tokens,
       coalesce(sum(cache_read_input_tokens), 0) as cache_read_tokens
     from usage_events
-    where org_id = ${orgId} and created_at > ${since}
+    where org_id = ${orgId} and created_at >= ${since}
   `);
   const r = rows[0];
   const input = Number(r?.input_tokens ?? 0);
@@ -63,7 +63,7 @@ export async function getSpendByDay(orgId: string, days: number): Promise<DayPoi
       coalesce(sum(input_tokens + output_tokens + cache_read_input_tokens + cache_creation_input_tokens), 0) as tokens,
       count(*) as requests
     from usage_events
-    where org_id = ${orgId} and created_at > ${since}
+    where org_id = ${orgId} and created_at >= ${since}
     group by 1
     order by 1
   `);
@@ -91,7 +91,7 @@ export async function getCostByModel(orgId: string, days: number): Promise<Model
       coalesce(sum(input_tokens + output_tokens + cache_read_input_tokens + cache_creation_input_tokens), 0) as tokens,
       count(*) as requests
     from usage_events
-    where org_id = ${orgId} and created_at > ${since}
+    where org_id = ${orgId} and created_at >= ${since}
     group by 1
     order by sum(cost_usd) desc
   `);
@@ -132,7 +132,7 @@ export async function getRecentRequests(
   }>(sql`
     select id, model, input_tokens, output_tokens, cost_usd, status, latency_ms, created_at
     from usage_events
-    where org_id = ${orgId} and created_at > ${since}
+    where org_id = ${orgId} and created_at >= ${since}
     order by created_at desc
     limit ${limit}
   `);
