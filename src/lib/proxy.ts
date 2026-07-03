@@ -89,7 +89,6 @@ export async function recordUsage(input: RecordUsageInput): Promise<void> {
     const model = normalizeModel(input.model);
     const pricing = await getPricing(input.provider, model);
     const { cost, version } = computeCost(input.usage, pricing);
-    console.log("[proxy] usage", { model, cost, input: input.usage.inputTokens, output: input.usage.outputTokens });
 
     await db.insert(usageEvents).values({
       orgId: input.orgId,
