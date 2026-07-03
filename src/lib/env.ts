@@ -28,6 +28,6 @@ export const env = {
     return required("SESSION_SECRET");
   },
   get anthropicBaseUrl() {
-    return "https://api.anthropic.com";
+    return process.env.ANTHROPIC_BASE_URL ?? "https://api.anthropic.com";
   },
 };
