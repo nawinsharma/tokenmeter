@@ -3,6 +3,7 @@ import Link from "next/link";
 export type Range = { days: number; label: string };
 
 const RANGES: Range[] = [
+  { days: 1, label: "24h" },
   { days: 7, label: "7d" },
   { days: 30, label: "30d" },
   { days: 90, label: "90d" },

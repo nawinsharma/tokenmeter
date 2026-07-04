@@ -50,10 +50,23 @@ async function main() {
     const outputTokens = rand(80, 2500);
     const cacheReadInputTokens = Math.random() < 0.5 ? rand(500, 8000) : 0;
     const cacheCreationInputTokens = Math.random() < 0.2 ? rand(200, 3000) : 0;
+    // Most cache writes are 5m (Claude Code default); occasionally some 1h.
+    const cacheCreation1hInputTokens =
+      cacheCreationInputTokens > 0 && Math.random() < 0.15
+        ? Math.floor(cacheCreationInputTokens * 0.5)
+        : 0;
+    const cacheCreation5mInputTokens = cacheCreationInputTokens - cacheCreation1hInputTokens;
 
     const pricing = await getPricing("anthropic", model);
     const { cost, version } = computeCost(
-      { inputTokens, outputTokens, cacheCreationInputTokens, cacheReadInputTokens },
+      {
+        inputTokens,
+        outputTokens,
+        cacheCreationInputTokens,
+        cacheCreation5mInputTokens,
+        cacheCreation1hInputTokens,
+        cacheReadInputTokens,
+      },
       pricing,
     );
 
@@ -74,6 +87,8 @@ async function main() {
       inputTokens,
       outputTokens,
       cacheCreationInputTokens,
+      cacheCreation5mInputTokens,
+      cacheCreation1hInputTokens,
       cacheReadInputTokens,
       costUsd: cost.toFixed(10),
       pricingVersion: version,

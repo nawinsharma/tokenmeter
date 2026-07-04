@@ -1,59 +1,67 @@
 # Token Meter
 
-Track LLM token usage and cost across providers via a **proxy/gateway**. Users route
-their Anthropic traffic through the proxy; every request's `usage` is captured, priced,
-and rendered in a dashboard. See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for the design.
+Track LLM token usage and cost by routing your Anthropic traffic through a **proxy**.
+Every request's `usage` is captured, priced, and shown on a dashboard — near-exact,
+per-request.
 
-Stack: Next.js (App Router, TS) · Postgres + Drizzle · Tailwind · Recharts.
+**Stack:** Next.js (App Router, TS) · Postgres + Drizzle · Better Auth · Tailwind · Recharts
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-  subgraph client["Your app"]
-    sdk["Anthropic SDK<br/>baseURL → proxy"]
+  subgraph app["Your app · Claude Code"]
+    sdk["Anthropic SDK<br/><i>baseURL → proxy</i>"]
   end
 
-  subgraph tm["Token Meter (Next.js)"]
-    proxy["Proxy<br/>/v1/messages"]
-    vault["Auth + key vault<br/>AES-256-GCM"]
-    cost["Cost engine<br/>versioned pricing"]
-    dash["Dashboard<br/>Recharts"]
+  subgraph tm["Token Meter · Next.js"]
+    direction TB
+    proxy(["/v1/messages<br/>proxy"])
+    vault["Key vault<br/><i>AES-256-GCM</i>"]
+    cost["Cost engine<br/><i>versioned pricing</i>"]
+    dash["Dashboard<br/><i>Recharts</i>"]
   end
 
   db[("Postgres")]
   up["Anthropic API"]
 
-  sdk -- "proxy key" --> proxy
-  proxy -- "hash → lookup,<br/>decrypt upstream key" --> vault
+  sdk -->|"① proxy key"| proxy
+  proxy -->|"② resolve + decrypt real key"| vault
   vault --- db
-  proxy -- "real key" --> up
-  up -- "response + usage" --> proxy
-  proxy -- "streamed response" --> sdk
-  proxy -. "price + record (async)" .-> cost
-  cost -- "usage_events" --> db
+  proxy ==>|"③ real key"| up
+  up ==>|"④ response + usage"| proxy
+  proxy ==>|"⑤ streamed back, untouched"| sdk
+  proxy -.->|"⑥ price + record · async"| cost
+  cost -->|"usage_events"| db
   db --> dash
+
+  classDef core fill:#eef2ff,stroke:#6366f1,stroke-width:1px,color:#1e1b4b;
+  classDef store fill:#fef3c7,stroke:#f59e0b,stroke-width:1px,color:#451a03;
+  classDef ext fill:#f1f5f9,stroke:#64748b,stroke-width:1px,color:#0f172a;
+  class proxy,vault,cost,dash core;
+  class db store;
+  class up,sdk ext;
 ```
 
-The user points their SDK at the proxy with a Token Meter key; we resolve it to their
-encrypted Anthropic key, forward the call, stream the response back untouched, and
-record priced `usage` off-path into Postgres for the dashboard. See
-[`ARCHITECTURE.md`](./ARCHITECTURE.md) for the full design.
+Point your SDK at the proxy with a **Token Meter key**; we resolve it to your encrypted
+Anthropic key, forward the call, stream the response back **untouched**, and record priced
+`usage` **off the hot path** into Postgres for the dashboard. Same tokens, same cost, same
+response — the proxy only observes.
 
 ## Prerequisites
 
-- Node 20+, pnpm
+- [Bun](https://bun.sh) 1.x
 - Postgres running locally (e.g. `brew services start postgresql@17`)
 
 ## Setup
 
 ```bash
-pnpm install
+bun install
 createdb llm_usage                 # or: psql -c 'create database llm_usage'
 cp .env.example .env.local         # then fill in the values below
-pnpm db:push                       # create tables
-pnpm db:seed                       # seed Anthropic model pricing
-pnpm dev                           # http://localhost:3000
+bun run db:push                    # create tables
+bun run db:seed                    # seed Anthropic model pricing
+bun run dev                        # http://localhost:6573
 ```
 
 `.env.local` values:
@@ -64,51 +72,44 @@ pnpm dev                           # http://localhost:3000
 | `MASTER_ENCRYPTION_KEY` | base64 of 32 random bytes — encrypts provider keys at rest (swap for KMS in prod) |
 | `SESSION_SECRET` | base64 of 32 random bytes — signs session cookies |
 | `ANTHROPIC_BASE_URL` | upstream (`https://api.anthropic.com`) |
+| `BETTER_AUTH_URL` / `BETTER_AUTH_SECRET` | auth base URL + signing secret |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Google sign-in (optional) |
 
 Generate a secret: `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`
 
 ## Using it
 
-1. Sign up at `/signup`.
-2. Under **Keys**, add your Anthropic key (stored AES-256-GCM encrypted; only the last 4 shown).
-3. Issue a **proxy key** (shown once). Point your SDK at the proxy:
+1. Sign up at `/signup` (email/password or Google).
+2. Under **Keys**, add your Anthropic key — stored AES-256-GCM encrypted, only last 4 shown.
+3. Issue a **proxy key** (shown once) and point your SDK at the proxy:
 
 ```ts
 const client = new Anthropic({
-  baseURL: "http://localhost:3000",      // the proxy ORIGIN — the SDK appends /v1/messages itself
+  baseURL: "http://localhost:6573",      // proxy ORIGIN — the SDK appends /v1/messages
   apiKey: process.env.LLMUSAGE_PROXY_KEY, // your proxy key, NOT your Anthropic key
 });
 ```
 
-> ⚠️ For the official Anthropic SDK, `baseURL` is the **origin** (no `/v1`) — the SDK adds `/v1/messages`.
-> For raw `curl` you hit the full path yourself: `http://localhost:3000/v1/messages`.
+> For the official Anthropic SDK, `baseURL` is the **origin** (no `/v1`). For raw `curl`,
+> hit the full path yourself: `http://localhost:6573/v1/messages`.
 
-4. Make requests as usual (streaming and non-streaming both work). Usage + cost land on the **Overview** dashboard.
+Make requests as usual — streaming and non-streaming both work. Usage and cost land on the
+**Overview** dashboard, filterable by date range (24h / 7d / 30d / 90d).
+
+## Features
+
+- **Auth** — email/password + Google (Better Auth), one org per signup.
+- **Key vault** — provider keys encrypted with AES-256-GCM; proxy keys stored as SHA-256 hashes, shown once.
+- **Proxy** — transparent `POST /v1/messages` passthrough; captures input/output/cache tokens. Metric writes are fire-and-forget, so a DB hiccup never breaks your LLM call.
+- **Cost engine** — versioned pricing with exact cache math (5m 1.25× · 1h 2× · read 0.1×) and effective-dated rows (e.g. Sonnet 5 intro pricing).
+- **Dashboard** — spend over time, cost by model, cache-hit ratio, recent requests.
 
 ## Scripts
 
 | Script | Purpose |
 |---|---|
-| `pnpm dev` / `build` / `start` | Next.js |
-| `pnpm db:push` | Apply the Drizzle schema to Postgres |
-| `pnpm db:seed` | Seed model pricing (`model_pricing`) |
-| `pnpm db:demo` | Insert ~320 sample usage events for the most-recent org (charts demo) |
-| `pnpm db:studio` | Drizzle Studio |
-
-> Dev note: pnpm's run-wrapper conflicts with ignored build scripts here, so the DB scripts
-> and any tsx/drizzle-kit calls run via `./node_modules/.bin/<tool>` under the hood are equivalent.
-> If `pnpm db:push` errors on `ERR_PNPM_IGNORED_BUILDS`, run `./node_modules/.bin/drizzle-kit push`.
-
-## What's built
-
-- **Auth** — email/password (bcrypt), one org per signup, signed-cookie sessions (jose).
-- **Key vault** — provider keys encrypted with AES-256-GCM envelope encryption; proxy keys stored as SHA-256 hashes, shown once.
-- **Proxy** — `POST /v1/messages` forwards to the upstream, transparently streams SSE, and captures `usage` (input/output/cache tokens) off the response. Metrics writes are fire-and-forget so a DB hiccup never breaks the user's LLM call.
-- **Cost engine** — versioned `model_pricing`; each event records the pricing version used.
-- **Dashboard** — spend over time, cost by model, cache-hit ratio, recent requests, filterable by date range.
-
-## Not yet built (see ARCHITECTURE.md §9)
-
-Multi-provider adapters (OpenAI/Gemini), tags/labels per request, CSV export, budgets/alerts,
-Admin-API pull mode, and hardening the proxy as a standalone service. Provider keys currently
-use a local master key — move to a real KMS before production.
+| `bun run dev` / `build` / `start` | Next.js (port 6573) |
+| `bun run db:push` | Apply the Drizzle schema to Postgres |
+| `bun run db:seed` | Seed model pricing |
+| `bun run db:demo` | Insert ~320 sample usage events (charts demo) |
+| `bun run db:studio` | Drizzle Studio |

@@ -133,6 +133,10 @@ export const usageEvents = pgTable(
     inputTokens: integer("input_tokens").notNull().default(0),
     outputTokens: integer("output_tokens").notNull().default(0),
     cacheCreationInputTokens: integer("cache_creation_input_tokens").notNull().default(0),
+    // Cache-creation tokens split by TTL — priced differently (5m = 1.25x, 1h = 2x input).
+    // Their sum equals cacheCreationInputTokens; kept separately for exact pricing.
+    cacheCreation5mInputTokens: integer("cache_creation_5m_input_tokens").notNull().default(0),
+    cacheCreation1hInputTokens: integer("cache_creation_1h_input_tokens").notNull().default(0),
     cacheReadInputTokens: integer("cache_read_input_tokens").notNull().default(0),
     costUsd: numeric("cost_usd", { precision: 20, scale: 10 }).notNull().default("0"),
     pricingVersion: integer("pricing_version"),
@@ -157,7 +161,9 @@ export const modelPricing = pgTable("model_pricing", {
   model: text("model").notNull(),
   inputPerMtok: numeric("input_per_mtok", { precision: 12, scale: 4 }).notNull(),
   outputPerMtok: numeric("output_per_mtok", { precision: 12, scale: 4 }).notNull(),
+  // 5-minute-TTL cache write multiplier (× input price). 1h writes use cacheWrite1hMult.
   cacheWriteMult: numeric("cache_write_mult", { precision: 6, scale: 4 }).notNull().default("1.25"),
+  cacheWrite1hMult: numeric("cache_write_1h_mult", { precision: 6, scale: 4 }).notNull().default("2.0"),
   cacheReadMult: numeric("cache_read_mult", { precision: 6, scale: 4 }).notNull().default("0.1"),
   effectiveFrom: timestamp("effective_from", { withTimezone: true }).notNull().defaultNow(),
   version: integer("version").notNull(),

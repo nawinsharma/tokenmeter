@@ -12,6 +12,26 @@ export type ProxyAuth = {
   upstreamKey: string;
 };
 
+/**
+ * Clients (e.g. Claude Code) may tag the model with a context-window suffix
+ * like "[1m]" that the upstream API doesn't accept. Strip it from the request
+ * body's `model` field before forwarding. Returns the (possibly rewritten) body
+ * text and the sanitized model id for logging.
+ */
+export function sanitizeModelInBody(bodyText: string): { bodyText: string; model: string } {
+  let parsed: { model?: string } = {};
+  try {
+    parsed = JSON.parse(bodyText);
+  } catch {
+    return { bodyText, model: "unknown" };
+  }
+  if (typeof parsed.model === "string" && /\[[^\]]*\]$/.test(parsed.model)) {
+    parsed.model = parsed.model.replace(/\[[^\]]*\]$/, "");
+    return { bodyText: JSON.stringify(parsed), model: parsed.model };
+  }
+  return { bodyText, model: parsed.model ?? "unknown" };
+}
+
 /** Read the proxy key from x-api-key or Authorization: Bearer. */
 export function readProxyKey(req: Request): string {
   const xApiKey = req.headers.get("x-api-key");
@@ -98,6 +118,8 @@ export async function recordUsage(input: RecordUsageInput): Promise<void> {
       inputTokens: input.usage.inputTokens,
       outputTokens: input.usage.outputTokens,
       cacheCreationInputTokens: input.usage.cacheCreationInputTokens,
+      cacheCreation5mInputTokens: input.usage.cacheCreation5mInputTokens,
+      cacheCreation1hInputTokens: input.usage.cacheCreation1hInputTokens,
       cacheReadInputTokens: input.usage.cacheReadInputTokens,
       costUsd: cost.toFixed(10),
       pricingVersion: version,
@@ -116,17 +138,45 @@ const EMPTY_USAGE: NormalizedUsage = {
   inputTokens: 0,
   outputTokens: 0,
   cacheCreationInputTokens: 0,
+  cacheCreation5mInputTokens: 0,
+  cacheCreation1hInputTokens: 0,
   cacheReadInputTokens: 0,
 };
 
+/**
+ * Anthropic reports cache-creation tokens two ways: a flat total
+ * (`cache_creation_input_tokens`) and, when present, a per-TTL breakdown under
+ * `cache_creation` (`ephemeral_5m_input_tokens` / `ephemeral_1h_input_tokens`).
+ * Pull both; fall back to attributing the whole total to 5m when the breakdown
+ * is absent (Claude Code's default TTL).
+ */
+function cacheCreationSplit(u: {
+  cache_creation_input_tokens?: number;
+  cache_creation?: { ephemeral_5m_input_tokens?: number; ephemeral_1h_input_tokens?: number };
+}): { total: number; c5m: number; c1h: number } {
+  const total = u.cache_creation_input_tokens ?? 0;
+  const cc = u.cache_creation;
+  if (cc && (cc.ephemeral_5m_input_tokens != null || cc.ephemeral_1h_input_tokens != null)) {
+    return {
+      total,
+      c5m: cc.ephemeral_5m_input_tokens ?? 0,
+      c1h: cc.ephemeral_1h_input_tokens ?? 0,
+    };
+  }
+  return { total, c5m: total, c1h: 0 };
+}
+
 /** Pull normalized usage out of an Anthropic non-streaming response body. */
 export function usageFromBody(body: unknown): NormalizedUsage {
-  const u = (body as { usage?: Record<string, number> })?.usage;
+  const u = (body as { usage?: Record<string, any> })?.usage;
   if (!u) return { ...EMPTY_USAGE };
+  const cc = cacheCreationSplit(u);
   return {
     inputTokens: u.input_tokens ?? 0,
     outputTokens: u.output_tokens ?? 0,
-    cacheCreationInputTokens: u.cache_creation_input_tokens ?? 0,
+    cacheCreationInputTokens: cc.total,
+    cacheCreation5mInputTokens: cc.c5m,
+    cacheCreation1hInputTokens: cc.c1h,
     cacheReadInputTokens: u.cache_read_input_tokens ?? 0,
   };
 }
@@ -160,7 +210,10 @@ export function usageFromSSE(sse: string): {
       model = evt.message.model ?? model;
       const u = evt.message.usage ?? {};
       usage.inputTokens = u.input_tokens ?? usage.inputTokens;
-      usage.cacheCreationInputTokens = u.cache_creation_input_tokens ?? usage.cacheCreationInputTokens;
+      const cc = cacheCreationSplit(u);
+      usage.cacheCreationInputTokens = cc.total;
+      usage.cacheCreation5mInputTokens = cc.c5m;
+      usage.cacheCreation1hInputTokens = cc.c1h;
       usage.cacheReadInputTokens = u.cache_read_input_tokens ?? usage.cacheReadInputTokens;
       if (typeof u.output_tokens === "number") usage.outputTokens = u.output_tokens;
     } else if (evt.type === "message_delta") {

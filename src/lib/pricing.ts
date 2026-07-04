@@ -6,6 +6,10 @@ export type NormalizedUsage = {
   inputTokens: number;
   outputTokens: number;
   cacheCreationInputTokens: number;
+  // Cache creation split by TTL. When the upstream doesn't break it down, all of
+  // cacheCreationInputTokens is treated as 5m (Claude Code's default).
+  cacheCreation5mInputTokens: number;
+  cacheCreation1hInputTokens: number;
   cacheReadInputTokens: number;
 };
 
@@ -13,7 +17,8 @@ export type PricingRow = {
   version: number;
   inputPerMtok: number;
   outputPerMtok: number;
-  cacheWriteMult: number;
+  cacheWriteMult: number; // 5-minute TTL
+  cacheWrite1hMult: number; // 1-hour TTL
   cacheReadMult: number;
 };
 
@@ -27,7 +32,10 @@ const TTL_MS = 60_000;
  * and any provider prefix (Bedrock's `anthropic.`) so pricing still resolves.
  */
 export function normalizeModel(model: string): string {
-  return model.replace(/^anthropic\./, "").replace(/-\d{8}$/, "");
+  return model
+    .replace(/^anthropic\./, "")
+    .replace(/\[[^\]]*\]$/, "") // strip client context-window suffix, e.g. "[1m]"
+    .replace(/-\d{8}$/, "");
 }
 
 export async function getPricing(
@@ -69,6 +77,7 @@ export async function getPricing(
         inputPerMtok: Number(r.inputPerMtok),
         outputPerMtok: Number(r.outputPerMtok),
         cacheWriteMult: Number(r.cacheWriteMult),
+        cacheWrite1hMult: Number(r.cacheWrite1hMult),
         cacheReadMult: Number(r.cacheReadMult),
       }
     : null;
@@ -83,10 +92,21 @@ export function computeCost(
   pricing: PricingRow | null,
 ): { cost: number; version: number | null } {
   if (!pricing) return { cost: 0, version: null };
+
+  // Split cache-creation tokens by TTL. If the upstream didn't break it down
+  // (both splits zero but a total is present), price the whole total at the 5m
+  // rate — Claude Code's default and the cheaper, conservative assumption.
+  const split1h = usage.cacheCreation1hInputTokens;
+  const split5m =
+    usage.cacheCreation5mInputTokens > 0 || split1h > 0
+      ? usage.cacheCreation5mInputTokens
+      : usage.cacheCreationInputTokens;
+
   const cost =
     (usage.inputTokens * pricing.inputPerMtok) / 1e6 +
     (usage.outputTokens * pricing.outputPerMtok) / 1e6 +
-    (usage.cacheCreationInputTokens * pricing.inputPerMtok * pricing.cacheWriteMult) / 1e6 +
+    (split5m * pricing.inputPerMtok * pricing.cacheWriteMult) / 1e6 +
+    (split1h * pricing.inputPerMtok * pricing.cacheWrite1hMult) / 1e6 +
     (usage.cacheReadInputTokens * pricing.inputPerMtok * pricing.cacheReadMult) / 1e6;
   return { cost, version: pricing.version };
 }

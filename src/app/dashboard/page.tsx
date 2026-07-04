@@ -18,7 +18,7 @@ export default async function DashboardPage({
 }) {
   const session = await requireSession();
   const sp = await searchParams;
-  const days = [7, 30, 90].includes(Number(sp.days)) ? Number(sp.days) : 30;
+  const days = [1, 7, 30, 90].includes(Number(sp.days)) ? Number(sp.days) : 30;
 
   const [summary, spend, byModel, recent] = await Promise.all([
     getSummary(session.orgId, days),
@@ -32,7 +32,9 @@ export default async function DashboardPage({
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-semibold text-white">Overview</h1>
-          <p className="mt-1 text-sm text-neutral-400">Usage and cost, last {days} days.</p>
+          <p className="mt-1 text-sm text-neutral-400">
+            Usage and cost, {days === 1 ? "last 24 hours" : `last ${days} days`}.
+          </p>
         </div>
         <DateRange current={days} />
       </div>
@@ -48,7 +50,11 @@ export default async function DashboardPage({
       ) : (
         <>
           <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-            <StatTile label="Total spend" value={fmtUsd(summary.totalCost)} sub={`${days} days`} />
+            <StatTile
+              label="Total spend"
+              value={fmtUsd(summary.totalCost)}
+              sub={days === 1 ? "24 hours" : `${days} days`}
+            />
             <StatTile label="Tokens" value={fmtTokens(summary.totalTokens)} sub="all types" />
             <StatTile label="Requests" value={summary.requests.toLocaleString()} />
             <StatTile

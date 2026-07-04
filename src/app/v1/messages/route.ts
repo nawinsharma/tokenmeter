@@ -8,6 +8,7 @@ import {
   readProxyKey,
   buildUpstreamHeaders,
   passthroughResponseHeaders,
+  sanitizeModelInBody,
 } from "@/lib/proxy";
 import type { NormalizedUsage } from "@/lib/pricing";
 
@@ -18,6 +19,8 @@ const EMPTY_USAGE: NormalizedUsage = {
   inputTokens: 0,
   outputTokens: 0,
   cacheCreationInputTokens: 0,
+  cacheCreation5mInputTokens: 0,
+  cacheCreation1hInputTokens: 0,
   cacheReadInputTokens: 0,
 };
 
@@ -35,15 +38,15 @@ export async function POST(req: Request) {
   }
 
   // 2. Read the request body once; extract model + stream flag.
-  const bodyText = await req.text();
-  let parsedReq: { model?: string; stream?: boolean } = {};
+  //    Strip any client context-window suffix ("[1m]") the upstream won't accept.
+  const rawBody = await req.text();
+  const { bodyText, model: requestedModel } = sanitizeModelInBody(rawBody);
+  let isStream = false;
   try {
-    parsedReq = JSON.parse(bodyText);
+    isStream = (JSON.parse(rawBody) as { stream?: boolean }).stream === true;
   } catch {
     /* forward as-is; upstream will validate */
   }
-  const requestedModel = parsedReq.model ?? "unknown";
-  const isStream = parsedReq.stream === true;
 
   // 3. Forward to the upstream provider with the real key.
   const upstreamHeaders = buildUpstreamHeaders(req, auth.upstreamKey);

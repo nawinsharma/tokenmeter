@@ -5,6 +5,7 @@ import {
   readProxyKey,
   buildUpstreamHeaders,
   passthroughResponseHeaders,
+  sanitizeModelInBody,
 } from "@/lib/proxy";
 
 export const runtime = "nodejs";
@@ -27,7 +28,14 @@ async function handle(req: Request, ctx: { params: Promise<{ path: string[] }> }
   const method = req.method.toUpperCase();
 
   const hasBody = method !== "GET" && method !== "HEAD";
-  const bodyBuf = hasBody ? Buffer.from(await req.arrayBuffer()) : undefined;
+  let bodyBuf = hasBody ? Buffer.from(await req.arrayBuffer()) : undefined;
+
+  // For JSON payloads (e.g. /v1/messages/count_tokens), strip any client
+  // context-window suffix ("[1m]") from the model the upstream won't accept.
+  if (bodyBuf?.length && (req.headers.get("content-type") ?? "").includes("json")) {
+    const { bodyText } = sanitizeModelInBody(bodyBuf.toString("utf8"));
+    bodyBuf = Buffer.from(bodyText, "utf8");
+  }
 
   let upstream: Response;
   try {
